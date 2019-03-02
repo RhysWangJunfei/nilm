@@ -1,0 +1,42 @@
+#Load the csv data
+base_dir = 'D://canada//uwo//project//dataset//NEW devices//'
+ac_raw_data = pd.read_csv(base_dir+'ac.csv')
+
+#Convert time data
+ac_raw_data['datetime'] = pd.to_datetime(ac_raw_data['read_dt'],
+           format='%m/%d/%y %H:%M')
+
+#Calculate difference for time, whole house energy and device energy
+ac_raw_data['time_diff'] = ac_raw_data['datetime'].diff()
+ac_raw_data['meter_diff'] = ac_raw_data['meter_read'].diff()
+ac_raw_data['device_diff'] = ac_raw_data['device_read'].diff()
+
+# drop the first row, because Null exists after difference
+ac_raw_data = ac_raw_data.drop(index=0, axis=0)
+
+#convert the time difference to minutes
+ac_raw_data['time_diff'] = ac_raw_data['time_diff'].astype('timedelta64[m]')
+
+# remove rows that diff meter <0
+# remove rows that diff device <0
+ac_data = ac_raw_data.loc[(ac_raw_data['meter_diff']>=0)&\
+                      (ac_raw_data['device_diff']>=0),]
+
+#calculate meter power&device power
+ac_data = ac_data.assign(meter_power= ac_data['meter_diff']*60/ac_data['time_diff'])
+ac_data = ac_data.assign(device_power= ac_data['device_diff']*60/ac_data['time_diff'])
+
+#sampling the data 1 minutes intervals
+ac_data = ac_data.drop(columns=['read_dt','meter_read','device_read','meter_mac',\
+                                'time_diff','meter_diff','device_diff'],axis=1)
+ac_data = ac_data.set_index('datetime')
+ac_data = ac_data.resample('T').interpolate(method='nearest')
+
+#Get the non time series data
+ac_data['month'] = ac_data.index.month
+ac_data['hour'] = ac_data.index.hour
+ac_data['weekday'] = ac_data.index.dayofweek
+
+#Save the new dataset
+result_df = pd.DataFrame(data=ac_data)
+result_df.to_csv('lh_ac.csv',index=False)
