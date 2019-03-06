@@ -1,36 +1,73 @@
-#Load the csv data
-base_dir = 'D://canada//uwo//project//dataset//NEW devices//'
-ac_raw_data = pd.read_csv(base_dir+'ac.csv')
+"""
+Spyder Editor
 
-#Convert time data
-ac_raw_data['datetime'] = pd.to_datetime(ac_raw_data['read_dt'],
+This is a temporary script file.
+"""
+
+import numpy as np
+import pandas as pd
+from sklearn.svm import OneClassSVM as ocs
+from sklearn.neighbors import LocalOutlierFactor
+
+base_dir = 'D://canada//uwo//project//dataset//NEW devices//'
+ac_data = pd.read_csv(base_dir+'ac.csv')
+
+###1.Data Cleansing
+#a. Define a new column to identify whether the point is a sudden peak
+ac_data['meter_outlier'] = ac_data['meter_read'].gt(ac_data['meter_read'].\
+       shift(-1))&ac_data['meter_read'].gt(ac_data['meter_read'].shift())
+#b. Define a new column to identify whether the point is a sudden valley
+ac_data['device_outlier'] = (ac_data['device_read'].gt(ac_data['device_read']\
+       .shift(-1))&ac_data['device_read'].gt(ac_data['device_read'].shift()))
+#c. Remove these two kinds of outliers
+ac_data = ac_data.loc[(ac_data['meter_outlier']==False)&\
+                              (ac_data['device_outlier']==False)]          
+
+#d.Fill zero values with the last valid value
+ac_data.loc[(ac_data['device_read']==0),'device_read']=None
+ac_data['device_read'] = ac_data['device_read'].fillna(method='ffill')
+
+#e.Convert read_dt from str to Date time
+ac_data['datetime'] = pd.to_datetime(ac_data['read_dt'],\
            format='%m/%d/%y %H:%M')
 
-#Calculate difference for time, whole house energy and device energy
-ac_raw_data['time_diff'] = ac_raw_data['datetime'].diff()
-ac_raw_data['meter_diff'] = ac_raw_data['meter_read'].diff()
-ac_raw_data['device_diff'] = ac_raw_data['device_read'].diff()
+###2. Data Engineering
+#a. Convert Data from Energy to Power
+#Calculate difference of time, meter_read, and divice_read
+ac_data['time_diff'] = ac_data['datetime'].diff()
+ac_data['meter_diff'] = ac_data['meter_read'].diff()
+ac_data['device_diff'] = ac_data['device_read'].diff()
 
-# drop the first row, because Null exists after difference
-ac_raw_data = ac_raw_data.drop(index=0, axis=0)
+# drop the first row, because there is nan value after difference
+ac_data = ac_data.drop(index=0, axis=0)
 
 #convert the time difference to minutes
-ac_raw_data['time_diff'] = ac_raw_data['time_diff'].astype('timedelta64[m]')
-
-# remove rows that diff meter <0
-# remove rows that diff device <0
-ac_data = ac_raw_data.loc[(ac_raw_data['meter_diff']>=0)&\
-                      (ac_raw_data['device_diff']>=0),]
+ac_data['time_diff'] = ac_data['time_diff'].astype('timedelta64[m]')
 
 #calculate meter power&device power
-ac_data = ac_data.assign(meter_power= ac_data['meter_diff']*60/ac_data['time_diff'])
-ac_data = ac_data.assign(device_power= ac_data['device_diff']*60/ac_data['time_diff'])
+ac_data = ac_data.assign(meter_power= \
+                         ac_data['meter_diff']*60*1000/ac_data['time_diff'])
+ac_data = ac_data.assign(device_power= \
+                         ac_data['device_diff']*60*1000/ac_data['time_diff'])
+
+'''
+ac_arr = ac_data[['time_diff','meter_diff','device_diff','meter_power',\
+                      'device_power']].values
+
+clf = LocalOutlierFactor(n_neighbors=20, contamination=0.1)
+# use fit_predict to compute the predicted labels of the training samples
+# (when LOF is used for outlier detection, the estimator has no predict,
+# decision_function and score_samples methods).
+y_pred = clf.fit_predict(ac_arr)
+'''
 
 #sampling the data 1 minutes intervals
-ac_data = ac_data.drop(columns=['read_dt','meter_read','device_read','meter_mac',\
-                                'time_diff','meter_diff','device_diff'],axis=1)
+ac_data = ac_data.drop(columns=['read_dt','meter_read','device_read',\
+                                'meter_mac','time_diff','meter_diff',\
+                                'device_diff','meter_outlier',\
+                                'device_outlier'],axis=1)
 ac_data = ac_data.set_index('datetime')
-ac_data = ac_data.resample('T').interpolate(method='nearest')
+ac_data = ac_data.resample('T').interpolate(method='linear')
 
 #Get the non time series data
 ac_data['month'] = ac_data.index.month
